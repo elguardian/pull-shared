@@ -158,7 +158,7 @@ public class Comment implements Comparable<Comment> {
     @Override
     public int compareTo(Comment o) {
         if ( o == null )
-            throw new IllegalArgumentException("Can't compare instance of comment [ID:" + o.getId() + "] with a 'null' instance of Comment !");
+            throw new IllegalArgumentException("Can't compare instance of comment [ID:" + this.getId() + "] with a 'null' instance of Comment !");
         if (this.getBugId() != o.getBugId() )
             throw new IllegalArgumentException("Can't compare comment [" + "BugId:" + o.getBugId() + " that does not belong to the same issue [BugId:" + this.getBugId());
         if ( this.getCount() == o.getCount())

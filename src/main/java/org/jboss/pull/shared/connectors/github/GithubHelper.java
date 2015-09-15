@@ -24,7 +24,9 @@ package org.jboss.pull.shared.connectors.github;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -34,6 +36,7 @@ import java.util.regex.Pattern;
 import org.eclipse.egit.github.core.Comment;
 import org.eclipse.egit.github.core.CommitStatus;
 import org.eclipse.egit.github.core.IRepositoryIdProvider;
+import org.eclipse.egit.github.core.Issue;
 import org.eclipse.egit.github.core.Label;
 import org.eclipse.egit.github.core.Milestone;
 import org.eclipse.egit.github.core.PullRequest;
@@ -46,55 +49,58 @@ import org.eclipse.egit.github.core.service.LabelService;
 import org.eclipse.egit.github.core.service.MilestoneService;
 import org.eclipse.egit.github.core.service.PullRequestService;
 import org.eclipse.egit.github.core.service.RepositoryService;
-import org.eclipse.egit.github.core.Issue;
 import org.jboss.pull.shared.Util;
 
 public class GithubHelper {
     private static final Logger LOG = Logger.getLogger(GithubHelper.class.getName());
 
-    private final String GITHUB_ORGANIZATION;
-    private final String GITHUB_REPO;
-    private final String GITHUB_LOGIN;
-    private final String GITHUB_TOKEN;
+    private String GITHUB_ORGANIZATION;
+    private String GITHUB_REPO;
+    private String GITHUB_LOGIN;
+    private String GITHUB_TOKEN;
 
-    private final IRepositoryIdProvider repository;
+    private IRepositoryIdProvider repository;
 
-    private final CommitService commitService;
-    private final IssueService issueService;
-    private final PullRequestService pullRequestService;
-    private final MilestoneService milestoneService;
-    private final RepositoryService repositoryService;
-    private final LabelService labelService;
+    private CommitService commitService;
+    private IssueService issueService;
+    private PullRequestService pullRequestService;
+    private MilestoneService milestoneService;
+    private RepositoryService repositoryService;
+    private LabelService labelService;
 
-    public GithubHelper(final String configurationFileProperty, final String configurationFileDefault) throws Exception {
-        try {
-            Properties props = Util.loadProperties(configurationFileProperty, configurationFileDefault);
+    private List<RepositoryBranch> branches;
+    private Properties properties;
 
-            GITHUB_ORGANIZATION = Util.require(props, "github.organization");
-            GITHUB_REPO = Util.require(props, "github.repo");
+    private Map<String, Label> labelsCache;
 
-            GITHUB_LOGIN = Util.require(props, "github.login");
-            GITHUB_TOKEN = Util.get(props, "github.token");
+    public void init(Properties properties) throws Exception {
+        this.properties = properties;
+        GITHUB_ORGANIZATION = Util.require(this.properties, "github.organization");
+        GITHUB_REPO = Util.require(this.properties, "github.repo");
 
-            GitHubClient client = new GitHubClient();
-            if (GITHUB_TOKEN != null && GITHUB_TOKEN.length() > 0)
-                client.setOAuth2Token(GITHUB_TOKEN);
-            repository = RepositoryId.create(GITHUB_ORGANIZATION, GITHUB_REPO);
-            commitService = new CommitService(client);
-            issueService = new IssueService(client);
-            pullRequestService = new PullRequestService(client);
-            milestoneService = new MilestoneService(client);
-            repositoryService = new RepositoryService(client);
-            labelService = new LabelService(client);
+        GITHUB_LOGIN = Util.require(this.properties, "github.login");
+        GITHUB_TOKEN = Util.get(this.properties, "github.token");
 
-        } catch (Exception e) {
-            System.err.printf("Cannot initialize: %s\n", e);
-            e.printStackTrace(System.err);
-            throw e;
+        GitHubClient client = new GitHubClient();
+        if (GITHUB_TOKEN != null && GITHUB_TOKEN.length() > 0) {
+            client.setOAuth2Token(GITHUB_TOKEN);
+        }
+
+        repository = RepositoryId.create(GITHUB_ORGANIZATION, GITHUB_REPO);
+        commitService = new CommitService(client);
+        issueService = new IssueService(client);
+        pullRequestService = new PullRequestService(client);
+        milestoneService = new MilestoneService(client);
+        repositoryService = new RepositoryService(client);
+        labelService = new LabelService(client);
+
+        // init the labels, we don't need to access everytime
+        labelsCache = new HashMap<String, Label>();
+        List<Label> tmpLabels = labelService.getLabels(repository);
+        for(Label label : tmpLabels) {
+            labelsCache.put(label.getName(), label);
         }
     }
-
-    List<RepositoryBranch> branches = null;
 
     public List<RepositoryBranch> getBranches() {
         if (branches == null) {
@@ -287,15 +293,13 @@ public class GithubHelper {
         return new ArrayList<Label>();
     }
 
-    public Label getLabel(final String title) {
-        try {
-            final String label = title.replace(" ", "%20");
-            return labelService.getLabel(repository, label);
-        } catch (IOException e) {
-            LOG.log(Level.WARNING, "Error trying to get label '" + title + "'", e);
-            System.err.println("Error trying to get label '" + title + "'");
+    public Label getLabel(final String label) {
+        if(labelsCache.containsKey(label)) {
+            return labelsCache.get(label);
+        } else {
+            LOG.log(Level.WARNING, "Label '" + label + "' does not exist");
+            return null;
         }
-        return null;
     }
 
     public void addLabel(PullRequest pullRequest, Label label) {
@@ -311,7 +315,6 @@ public class GithubHelper {
     }
 
     public void removeLabel(PullRequest pullRequest, Label newLabel) {
-
         Issue issue = getIssue(pullRequest);
 
         List<Label> labels = issue.getLabels();

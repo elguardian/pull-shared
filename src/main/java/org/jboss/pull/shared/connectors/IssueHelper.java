@@ -22,14 +22,23 @@
 
 package org.jboss.pull.shared.connectors;
 
-import org.jboss.pull.shared.connectors.common.Issue;
-
 import java.net.URL;
+import java.util.List;
+import java.util.Properties;
+
+import org.jboss.pull.shared.connectors.common.Issue;
 
 /**
  * @author navssurtani
  */
-public interface IssueHelper {
+public interface IssueHelper<T extends Issue> {
+    /**
+     * A method to test if underlying implementatio accepts a given issue.n.
+     *
+     * @param url - the issue URL
+     * @return - whether or not the url is accepted by the underlying issue tracking system.
+     */
+    boolean accepts(URL url);
 
     /**
      * Finds a given {@link Issue} based on a URL parameter. Any client should make sure that
@@ -40,16 +49,7 @@ public interface IssueHelper {
      * @throws java.lang.IllegalArgumentException - if the String is incorrect. This will be if the remote server
      * rejects the request.
      */
-    Issue findIssue(URL url) throws IllegalArgumentException;
-
-
-    /**
-     * A method to test if underlying implementatio accepts a given issue.n.
-     *
-     * @param url - the issue URL
-     * @return - whether or not the url is accepted by the underlying issue tracking system.
-     */
-    boolean accepts(URL url);
+    T findIssue(URL url) throws IllegalArgumentException, IssueUnavailableException;
 
     /**
      * Update the status ofan {@link Issue}e. Before calling this method, {@link #accepts(java.net.URL)} should be called
@@ -58,4 +58,25 @@ public interface IssueHelper {
      * @return - whether or not the status was updated successfully.
      */
     boolean updateStatus(URL url, Enum status);
+
+    /**
+     * Chechk whether the description contains a link that this issue tracker can hanler or not.
+     * @param description content of the description
+     * @return wheter or not there is at least one link to this issue tracker
+     */
+    boolean hasLinkInDescription(String description);
+
+    /**
+     * extracts the url contained in the description
+     * @param description description of the issue
+     * @return a list of url to this issue tracker
+     */
+    List<URL> extractURLs(String description);
+
+    /**
+     * initialize the issue tracker
+     * @param props properties to initilize the issue tracker
+     * @throws Exception
+     */
+    void init(Properties props) throws Exception;
 }

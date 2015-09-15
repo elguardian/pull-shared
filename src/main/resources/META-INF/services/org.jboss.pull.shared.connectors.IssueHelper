@@ -1,0 +1,2 @@
+org.jboss.pull.shared.connectors.bugzilla.BZHelper
+org.jboss.pull.shared.connectors.jira.JiraHelper

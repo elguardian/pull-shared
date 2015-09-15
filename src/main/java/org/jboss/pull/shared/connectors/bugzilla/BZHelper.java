@@ -25,6 +25,7 @@ package org.jboss.pull.shared.connectors.bugzilla;
 
 import java.net.URL;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.SortedSet;
@@ -32,34 +33,35 @@ import java.util.SortedSet;
 import org.jboss.pull.shared.Constants;
 import org.jboss.pull.shared.Util;
 import org.jboss.pull.shared.connectors.IssueHelper;
+import org.jboss.pull.shared.connectors.IssueUnavailableException;
 import org.jboss.pull.shared.connectors.common.AbstractCommonIssueHelper;
-import org.jboss.pull.shared.connectors.common.Issue;
 
-public class BZHelper extends AbstractCommonIssueHelper implements IssueHelper {
+public class BZHelper extends AbstractCommonIssueHelper implements IssueHelper<Bug> {
 
-    private final String BUGZILLA_LOGIN;
-    private final String BUGZILLA_PASSWORD;
-
-    private final Bugzilla bugzillaClient;
-
-    public BZHelper(final String configurationFileProperty, final String configurationFileDefault) throws Exception {
-        super(configurationFileProperty, configurationFileDefault);
-        try {
-            BUGZILLA_LOGIN = Util.require(fromUtil, "bugzilla.login");
-            BUGZILLA_PASSWORD = Util.require(fromUtil, "bugzilla.password");
-
-            // initialize bugzilla client
-            bugzillaClient = new Bugzilla(Constants.BUGZILLA_BASE, BUGZILLA_LOGIN, BUGZILLA_PASSWORD);
-        } catch (Exception e) {
-            System.err.printf("Cannot initialize: %s\n", e);
-            e.printStackTrace(System.err);
-            throw e;
-        }
-    }
+    private Bugzilla bugzillaClient;
 
     @Override
-    public Issue findIssue(URL url) throws IllegalArgumentException {
-        return bugzillaClient.getBug(cutIdFromURL(url));
+    public void init() throws Exception {
+         String login = Util.require(getProperties(), "bugzilla.login");
+         String password = Util.require(getProperties(), "bugzilla.password");
+
+         // initialize bugzilla client
+         bugzillaClient = new Bugzilla(Constants.BUGZILLA_BASE, login, password);
+    }
+
+
+    @Override
+    public Bug findIssue(URL url) throws IssueUnavailableException {
+        try {
+           Bug bug = bugzillaClient.getBug(cutIdFromURL(url));
+           if(bug == null) {
+              throw new IssueUnavailableException("Failed to locate " + url);
+           } else {
+              return bug;
+           }
+        } catch (Exception e) {
+           throw new IssueUnavailableException("Failed to locate " + url, e);
+        }
     }
 
     @Override
@@ -71,6 +73,21 @@ public class BZHelper extends AbstractCommonIssueHelper implements IssueHelper {
     @Override
     public boolean updateStatus(URL url, Enum status) {
         throw new UnsupportedOperationException("This feature is not implemented yet.");
+    }
+
+    /**
+     * Returns true if BZ link is in the PR description. Does not verify BZ exists.
+     *
+     * @return
+     */
+    @Override
+    public boolean hasLinkInDescription(String description) {
+        return extractURLs(description).size() > 0;
+    }
+
+    @Override
+    public List<URL> extractURLs(String description) {
+        return extractURLs(Constants.BUGZILLA_BASE_ID, Constants.BUGZILLA_ID_PATTERN, description);
     }
 
     private int cutIdFromURL(URL url) {
@@ -98,4 +115,5 @@ public class BZHelper extends AbstractCommonIssueHelper implements IssueHelper {
     public boolean updateEstimate(final int id, final double worktime) {
         return bugzillaClient.updateEstimate(id, worktime);
     }
+
 }

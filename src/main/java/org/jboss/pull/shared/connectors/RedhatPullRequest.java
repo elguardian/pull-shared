@@ -22,11 +22,11 @@
 
 package org.jboss.pull.shared.connectors;
 
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,105 +37,24 @@ import org.eclipse.egit.github.core.PullRequest;
 import org.eclipse.egit.github.core.User;
 import org.jboss.pull.shared.BuildResult;
 import org.jboss.pull.shared.Constants;
-import org.jboss.pull.shared.connectors.bugzilla.BZHelper;
-import org.jboss.pull.shared.connectors.bugzilla.Bug;
 import org.jboss.pull.shared.connectors.common.Issue;
 import org.jboss.pull.shared.connectors.github.GithubHelper;
-import org.jboss.pull.shared.connectors.jira.JiraHelper;
-import org.jboss.pull.shared.connectors.jira.JiraIssue;
 
 public class RedhatPullRequest {
+    private Logger LOG = Logger.getLogger(RedhatPullRequest.class.getName());
+
     private PullRequest pullRequest;
 
-    private List<Issue> bugs = null;
-    private List<Issue> jiraIssues = null;
     private List<RedhatPullRequest> relatedPullRequests = null;
 
-    private IssueHelper bzHelper;
-    private IssueHelper jiraHelper;
+    private List<IssueHelper<?>> issueHelpers;
     private GithubHelper ghHelper;
 
-    public RedhatPullRequest(PullRequest pullRequest, IssueHelper bzHelper, IssueHelper jiraHelper, GithubHelper ghHelper) {
+    public RedhatPullRequest(PullRequest pullRequest, List<IssueHelper<?>> issueHelpers, GithubHelper ghHelper) {
         this.pullRequest = pullRequest;
-        if (bzHelper instanceof BZHelper && jiraHelper instanceof JiraHelper) {
-            this.bzHelper = bzHelper;
-            this.jiraHelper = jiraHelper;
-        } else {
-            throw new IllegalArgumentException("The first IssueHelper parameter has to be an instance of BZHelper and"
-                    + " the second IssueHelper parameter must be an instance of JiraHelper.");
-        }
-
+        this.issueHelpers = issueHelpers;
         this.ghHelper = ghHelper;
 
-        this.bugs = getBugsFromDescription();
-        this.jiraIssues = getJiraIssuesFromDescription();
-
-        // Can't call getPRFromDescription here. If two PR's reference each other a loop occurs.
-    }
-
-    /**
-     * Returns true if BZ link is in the PR description. Does not verify BZ exists.
-     *
-     * @return
-     */
-    public boolean hasBZLinkInDescription() {
-        return extractURLs(Constants.BUGZILLA_BASE_ID, Constants.BUGZILLA_ID_PATTERN).size() > 0;
-    }
-
-    private List<Issue> getBugsFromDescription() {
-        final List<URL> urls = extractURLs(Constants.BUGZILLA_BASE_ID, Constants.BUGZILLA_ID_PATTERN);
-        final ArrayList<Issue> bugs = new ArrayList<Issue>();
-        for (URL url : urls) {
-            if (bzHelper.accepts(url)) {
-                Bug bug = (Bug) bzHelper.findIssue(url);
-                if (bug != null) {
-                    bugs.add(bug);
-                }
-            }
-        }
-        return bugs;
-    }
-
-    /**
-     * Returns true if JIRA link is in the PR description. Does not verify JIRA exists.
-     *
-     * @return
-     */
-    public boolean hasJiraLinkInDescription() {
-        return extractURLs(Constants.JIRA_BASE_BROWSE, Constants.RELATED_JIRA_PATTERN).size() > 0;
-    }
-
-    private List<Issue> getJiraIssuesFromDescription() {
-        final List<URL> urls = extractURLs(Constants.JIRA_BASE_BROWSE, Constants.RELATED_JIRA_PATTERN);
-        final List<Issue> jiraIssues = new ArrayList<Issue>();
-        for (URL url : urls) {
-            if (jiraHelper.accepts(url)) {
-                JiraIssue jiraIssue = (JiraIssue) jiraHelper.findIssue(url);
-                if (jiraIssue != null) {
-                    jiraIssues.add(jiraIssue);
-                }
-            }
-        }
-        return jiraIssues;
-    }
-
-    private List<URL> extractURLs(String urlBase, Pattern toMatch) {
-        final List<URL> urls = new ArrayList<URL>();
-        final Matcher matcher = toMatch.matcher(pullRequest.getBody());
-        while (matcher.find()) {
-            try {
-                urls.add(new URL(urlBase + matcher.group(1)));
-            } catch (NumberFormatException ignore) {
-                System.err.printf("Invalid bug number: %s.\n", ignore);
-            } catch (MalformedURLException malformed) {
-                System.err.printf("Invalid URL formed: %s. \n", malformed);
-            }
-        }
-        return urls;
-    }
-
-    public boolean hasBugLinkInDescription() {
-        return (hasBZLinkInDescription() || hasJiraLinkInDescription());
     }
 
     /**
@@ -144,10 +63,30 @@ public class RedhatPullRequest {
      * @return
      */
     public List<Issue> getIssues() {
-        List<Issue> toReturn = new ArrayList<Issue>(bugs.size() + jiraIssues.size());
-        toReturn.addAll(bugs);
-        toReturn.addAll(jiraIssues);
-        return toReturn;
+        List<Issue> issues = new ArrayList<Issue>();
+        for(IssueHelper<?> issueHelper : issueHelpers) {
+            String description = pullRequest.getBody();
+            if(issueHelper.hasLinkInDescription(description)) {
+                for(URL url : issueHelper.extractURLs(description)) {
+                    try {
+                       issues.add(issueHelper.findIssue(url));
+                    } catch(IssueUnavailableException e) {
+                        LOG.warning("Failed to locate the issue " + url);
+                    }
+                }
+            }
+        }
+        return issues;
+    }
+
+    public boolean hasBugLinkInDescription() {
+        for(IssueHelper<?> issueHelper : issueHelpers) {
+            String description = pullRequest.getBody();
+            if(issueHelper.hasLinkInDescription(description)) {
+               return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -192,7 +131,7 @@ public class RedhatPullRequest {
             PullRequest relatedPullRequest = ghHelper.getPullRequest(matcher.group(1), matcher.group(2),
                     Integer.valueOf(matcher.group(3)));
             if (relatedPullRequest != null) {
-                relatedPullRequests.add(new RedhatPullRequest(relatedPullRequest, bzHelper, jiraHelper, ghHelper));
+                relatedPullRequests.add(new RedhatPullRequest(relatedPullRequest, issueHelpers, ghHelper));
             }
         }
 
@@ -209,7 +148,7 @@ public class RedhatPullRequest {
                         abbreviatedExternalMatcher.group(2), Integer.valueOf(abbreviatedExternalMatcher.group(3)));
                 if (relatedPullRequest != null) {
                     System.out.println("External Match Found: " + match);
-                    relatedPullRequests.add(new RedhatPullRequest(relatedPullRequest, bzHelper, jiraHelper, ghHelper));
+                    relatedPullRequests.add(new RedhatPullRequest(relatedPullRequest, issueHelpers, ghHelper));
                     continue;
                 }
 
@@ -220,7 +159,7 @@ public class RedhatPullRequest {
                     Integer.valueOf(abbreviatedMatcher.group(2)));
             if (relatedPullRequest != null) {
                 System.out.println("Internal Match Found: " + match);
-                relatedPullRequests.add(new RedhatPullRequest(relatedPullRequest, bzHelper, jiraHelper, ghHelper));
+                relatedPullRequests.add(new RedhatPullRequest(relatedPullRequest, issueHelpers, ghHelper));
             }
 
         }
@@ -322,16 +261,10 @@ public class RedhatPullRequest {
     }
 
     public boolean updateStatus(Issue issue, Enum status) throws IllegalArgumentException {
-        if (issue instanceof Bug) {
-            // Do BZ stuff
-            if (bzHelper.accepts(issue.getUrl()))
-                return bzHelper.updateStatus(issue.getUrl(), status);
-        } else if (issue instanceof JiraIssue) {
-            // Do Jira stuff
-            if (jiraHelper.accepts(issue.getUrl()))
-                return jiraHelper.updateStatus(issue.getUrl(), status);
-        } else {
-            throw new IllegalArgumentException("Your issue implementation has to be an instance of a Bug or " + "JiraIssue");
+        for(IssueHelper<?> issueHelper : issueHelpers) {
+           if(issueHelper.accepts(issue.getUrl())) {
+              return issueHelper.updateStatus(issue.getUrl(), status);
+           }
         }
         return false;
     }
@@ -351,4 +284,6 @@ public class RedhatPullRequest {
     public void removeLabel(Label newLabel) {
         ghHelper.removeLabel(pullRequest, newLabel);
     }
+
+
 }

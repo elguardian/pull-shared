@@ -22,32 +22,48 @@
 
 package org.jboss.pull.shared.connectors.common;
 
-import org.jboss.pull.shared.Util;
-import org.jboss.pull.shared.connectors.IssueHelper;
-
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * @author navssurtani
  */
 
-public abstract class AbstractCommonIssueHelper implements IssueHelper {
+public abstract class AbstractCommonIssueHelper {
 
-    protected Properties fromUtil;
+    private Properties properties;
 
-    public AbstractCommonIssueHelper(final String configurationFileProperty,
-                                     final String configurationFileDefault) throws Exception {
 
-        // We just want to initialise the properties here.
-        try {
-            this.fromUtil = Util.loadProperties(configurationFileProperty, configurationFileDefault);
-        } catch (Exception e) {
-            System.err.printf("Cannot initialize: %s\n", e);
-            e.printStackTrace(System.err);
-            throw e;
-        }
-
+    public void init(Properties properties) throws Exception {
+        this.properties = properties;
+        init();
     }
 
+    public abstract void init() throws Exception;
+
+
+    public final Properties getProperties() {
+        return properties;
+    }
+
+    protected final List<URL> extractURLs(String urlBase, Pattern toMatch, String content) {
+        final List<URL> urls = new ArrayList<URL>();
+        final Matcher matcher = toMatch.matcher(content);
+        while (matcher.find()) {
+            try {
+                urls.add(new URL(urlBase + matcher.group(1)));
+            } catch (NumberFormatException ignore) {
+                System.err.printf("Invalid bug number: %s.\n", ignore);
+            } catch (MalformedURLException malformed) {
+                System.err.printf("Invalid URL formed: %s. \n", malformed);
+            }
+        }
+        return urls;
+    }
 
 }

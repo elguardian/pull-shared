@@ -21,24 +21,24 @@
  */
 package org.jboss.pull.shared;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Properties;
+import java.util.ServiceLoader;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import org.eclipse.egit.github.core.Comment;
 import org.eclipse.egit.github.core.Label;
 import org.eclipse.egit.github.core.Milestone;
 import org.eclipse.egit.github.core.PullRequest;
 import org.eclipse.egit.github.core.RepositoryBranch;
 import org.jboss.pull.shared.connectors.IssueHelper;
-import org.jboss.pull.shared.connectors.bugzilla.BZHelper;
 import org.jboss.pull.shared.connectors.RedhatPullRequest;
 import org.jboss.pull.shared.connectors.github.GithubHelper;
-import org.jboss.pull.shared.connectors.jira.JiraHelper;
 import org.jboss.pull.shared.evaluators.PullEvaluatorFacade;
 import org.jboss.pull.shared.spi.PullEvaluator;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Properties;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * A shared functionality regarding mergeable PRs, Github and Bugzilla.
@@ -54,10 +54,10 @@ public class PullHelper {
 
     private final UserList adminList;
 
+    private List<IssueHelper<?>> issueHelpers;
+
     // ------- Specific Helpers
     private GithubHelper ghHelper;
-    private IssueHelper bzHelper;
-    private IssueHelper jiraHelper;
 
     private final Properties props;
 
@@ -67,11 +67,22 @@ public class PullHelper {
 
     public PullHelper(final String configurationFileProperty, final String configurationFileDefault) throws Exception {
         try {
-            ghHelper = new GithubHelper(configurationFileProperty, configurationFileDefault);
-            bzHelper = new BZHelper(configurationFileProperty, configurationFileDefault);
-            jiraHelper = new JiraHelper(configurationFileProperty, configurationFileDefault);
-
             props = Util.loadProperties(configurationFileProperty, configurationFileDefault);
+
+            // patch helper (this case only github)
+            ghHelper = new GithubHelper();
+            ghHelper.init(props);
+
+            // add the issue helper and init them
+            issueHelpers = new ArrayList<IssueHelper<?>>();
+            ServiceLoader<IssueHelper> issueHelperServices = ServiceLoader.load(IssueHelper.class);
+
+            Iterator<IssueHelper> iterator = issueHelperServices.iterator();
+            while(iterator.hasNext()) {
+                 IssueHelper<?> issueHelper = (IssueHelper<?>) iterator.next();
+                 issueHelper.init(props);
+                 issueHelpers.add(issueHelper);
+            }
 
             // initialize evaluators
             evaluatorFacade = new PullEvaluatorFacade(this, props);
@@ -107,8 +118,8 @@ public class PullHelper {
         List<RedhatPullRequest> redhatPullRequests = new ArrayList<RedhatPullRequest>();
 
         for (PullRequest pullRequest : pullRequests) {
-            LOG.log(Level.INFO, "Found PR #{0,number,#}", pullRequest.getNumber());
-            redhatPullRequests.add(new RedhatPullRequest(pullRequest, bzHelper, jiraHelper, ghHelper));
+            LOG.log(Level.INFO, "Found PR #{0,number,#} - {1}", new Object[] {pullRequest.getNumber(), pullRequest.getTitle()});
+            redhatPullRequests.add(new RedhatPullRequest(pullRequest, issueHelpers, ghHelper));
         }
 
         return redhatPullRequests;
@@ -116,7 +127,7 @@ public class PullHelper {
 
     public RedhatPullRequest getPullRequest(String organization, String repository, int id) {
         PullRequest pullRequest = ghHelper.getPullRequest(organization, repository, id);
-        return new RedhatPullRequest(pullRequest, bzHelper, jiraHelper, ghHelper);
+        return new RedhatPullRequest(pullRequest, issueHelpers, ghHelper);
     }
 
     public List<Milestone> getGithubMilestones() {

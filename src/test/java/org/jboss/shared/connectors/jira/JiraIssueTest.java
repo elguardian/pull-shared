@@ -22,6 +22,7 @@
 
 package org.jboss.shared.connectors.jira;
 
+import org.jboss.pull.shared.Util;
 import org.jboss.pull.shared.connectors.IssueHelper;
 import org.jboss.pull.shared.connectors.common.Flag;
 import org.jboss.pull.shared.connectors.jira.JiraHelper;
@@ -48,14 +49,15 @@ public class JiraIssueTest {
     private static final String BASE_FILE_NAME = "./processor-eap-6.properties.example";
     private static final String JIRA_URL_BASE = "https://issues.jboss.org/browse/";
 
-    private IssueHelper jiraHelper = null;
+    private IssueHelper<?> jiraHelper = null;
 
 
     @BeforeTest
     public void startHelper() throws Exception {
         // Because the Util class looks for system properties.
         System.setProperty(BASE_FILE_PROPERTY, BASE_FILE_NAME);
-        this.jiraHelper = new JiraHelper(BASE_FILE_PROPERTY, BASE_FILE_NAME);
+        this.jiraHelper = new JiraHelper();
+        this.jiraHelper.init(Util.loadProperties(BASE_FILE_PROPERTY, BASE_FILE_NAME));
     }
 
     @AfterTest

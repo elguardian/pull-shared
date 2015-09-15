@@ -87,8 +87,6 @@ public class BugsClient extends AbstractBugzillaClient {
         return runCommand("Bug.update", params);
     }
 
-
-    @SuppressWarnings("unchecked")
     public Map<String, Bug> getBugs(Set<String> keySet) {
         if (keySet == null || keySet.isEmpty())
             throw new IllegalArgumentException("Provided bug instance can't be null or empty");

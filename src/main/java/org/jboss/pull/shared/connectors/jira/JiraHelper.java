@@ -22,53 +22,45 @@
 
 package org.jboss.pull.shared.connectors.jira;
 
-import com.atlassian.jira.rest.client.JiraRestClient;
-import com.atlassian.jira.rest.client.NullProgressMonitor;
-import com.atlassian.jira.rest.client.internal.jersey.JerseyJiraRestClientFactory;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.util.List;
 
 import org.jboss.pull.shared.Constants;
 import org.jboss.pull.shared.Util;
 import org.jboss.pull.shared.connectors.IssueHelper;
+import org.jboss.pull.shared.connectors.IssueUnavailableException;
 import org.jboss.pull.shared.connectors.common.AbstractCommonIssueHelper;
-import org.jboss.pull.shared.connectors.common.Issue;
 
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
+import com.atlassian.jira.rest.client.JiraRestClient;
+import com.atlassian.jira.rest.client.NullProgressMonitor;
+import com.atlassian.jira.rest.client.internal.jersey.JerseyJiraRestClientFactory;
 
 /**
  * @author navssurtani
  */
-public class JiraHelper extends AbstractCommonIssueHelper implements IssueHelper{
-
-    private static String JIRA_LOGIN;
-    private static String JIRA_PASSWORD;
+public class JiraHelper extends AbstractCommonIssueHelper implements IssueHelper<JiraIssue> {
 
     private JiraRestClient restClient;
 
-    public JiraHelper(final String configurationFileProperty, final String configurationFileDefault) throws Exception {
-        super(configurationFileProperty, configurationFileDefault);
-        try {
-            JIRA_LOGIN = Util.require(fromUtil, "jira.login");
-            JIRA_PASSWORD = Util.require(fromUtil, "jira.password");
-            restClient = buildJiraRestClient();
-        } catch (Exception e) {
-            System.err.printf("Cannot initialize: %s\n", e);
-            e.printStackTrace(System.err);
-            throw e;
-        }
+    @Override
+    public void init() throws Exception {
+        String login = Util.require(getProperties(), "jira.login");
+        String password = Util.require(getProperties(), "jira.password");
+        restClient = buildJiraRestClient(login, password);
     }
 
     @Override
-    public Issue findIssue(URL url) throws IllegalArgumentException {
+    public JiraIssue findIssue(URL url) throws IssueUnavailableException {
         try {
             String key = cutKeyFromURL(url);
             com.atlassian.jira.rest.client.domain.Issue fromServer = restClient.getIssueClient()
                     .getIssue(key, new NullProgressMonitor());
             return new JiraIssue(fromServer);
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             // Atlassian is very poor in reporting proper context
-            throw new RuntimeException("Failed to find issue " + url, e);
+            throw new IssueUnavailableException("Failed to find issue " + url, e);
         }
     }
 
@@ -77,15 +69,30 @@ public class JiraHelper extends AbstractCommonIssueHelper implements IssueHelper
         return url.getHost().equalsIgnoreCase(Constants.JIRA_HOST);
     }
 
+    /**
+     * Returns true if JIRA link is in the PR description. Does not verify JIRA exists.
+     *
+     * @return
+     */
+    @Override
+    public boolean hasLinkInDescription(String description) {
+        return extractURLs(description).size() > 0;
+    }
+
+    @Override
+    public List<URL> extractURLs(String description) {
+        return extractURLs(Constants.JIRA_BASE_BROWSE, Constants.RELATED_JIRA_PATTERN, description);
+    }
+
     @Override
     // FIXME: This has to be implemented properly.
     public boolean updateStatus(URL url, Enum status) {
-        throw new UnsupportedOperationException("This feature is not supported or tested yet.");
+        throw new UnsupportedOperationException("This feature is not supported by Jira");
     }
 
-    private JiraRestClient buildJiraRestClient() throws URISyntaxException {
+    private JiraRestClient buildJiraRestClient(String login, String password) throws URISyntaxException {
         JerseyJiraRestClientFactory clientFactory = new JerseyJiraRestClientFactory();
-        return clientFactory.createWithBasicHttpAuthentication(new URI(Constants.JIRA_BASE), JIRA_LOGIN, JIRA_PASSWORD);
+        return clientFactory.createWithBasicHttpAuthentication(new URI(Constants.JIRA_BASE), login, password);
     }
 
     private String cutKeyFromURL(URL url) {
@@ -94,4 +101,6 @@ public class JiraHelper extends AbstractCommonIssueHelper implements IssueHelper
         int slashAfterBrowse = urlString.indexOf("/", browse);
         return urlString.substring(slashAfterBrowse + 1);
     }
+
+
 }
